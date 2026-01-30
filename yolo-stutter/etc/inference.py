@@ -1,8 +1,9 @@
 import os
 import sys
-module_path = os.path.abspath(os.path.join('..'))
-if module_path not in sys.path:
-    sys.path.append(module_path)
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.append(PROJECT_ROOT)
 
 import json
 import torch
@@ -57,7 +58,12 @@ def get_sample_rate_wave(audio_file_path):
         return wf.getframerate()
 
 
-hps = utils.get_hparams_from_file("../utils/vits/configs/ljs_base.json")
+CONFIG_PATH = os.path.join(PROJECT_ROOT, "utils", "vits", "configs", "ljs_base.json")
+MODEL_PATH = os.path.join(PROJECT_ROOT, "saved_models", "pretrained_ljs.pth")
+DECODER_PATH = os.path.join(PROJECT_ROOT, "saved_models", "decoder_tts_joint")
+DATA_DIR = os.path.abspath(os.path.join(PROJECT_ROOT, "..", "inference"))
+
+hps = utils.get_hparams_from_file(CONFIG_PATH)
 net_g = SynthesizerTrn(
     len(symbols),
     hps.data.filter_length // 2 + 1,
@@ -65,7 +71,7 @@ net_g = SynthesizerTrn(
     **hps.model)
 _ = net_g.eval()
 
-_ = utils.load_checkpoint("../saved_models/pretrained_ljs.pth", net_g, None)
+_ = utils.load_checkpoint(MODEL_PATH, net_g, None)
 
 
 def get_audio_a(filename):
@@ -204,7 +210,11 @@ def single_inference(hps, wav_path, ref_text, downsample_factor, decoder, device
 
 if __name__ == "__main__":
 
-    device = torch.device("cuda:5")
+    device_name = os.environ.get("YOLOSTUTTER_DEVICE")
+    if device_name:
+        device = torch.device(device_name)
+    else:
+        device = torch.device("cpu")
 
     text_channels = 768
     kernel_size= 3
@@ -216,14 +226,16 @@ if __name__ == "__main__":
     n_layers = 8
 
 
-    decoder = torch.load("../saved_models/decoder_tts_joint", map_location=device)
+    decoder = torch.load(DECODER_PATH, map_location=device)
     
     labels = ["rep", "block", "missing", "replace", "prolong"]
 
     net_g = net_g.to(device)
 
-    ref_text = "Please call Stella."
-    wav_path = "samples/p001_001_rep.wav"
+    transcript_path = os.path.join(DATA_DIR, "raw_transcript.txt")
+    wav_path = os.path.join(DATA_DIR, "raw_22050_mono.wav")
+    with open(transcript_path, "r") as f:
+        ref_text = f.read().strip()
     
     output = single_inference(hps, wav_path, ref_text, downsample_factor, decoder, device)
 
@@ -240,4 +252,3 @@ if __name__ == "__main__":
     bounds_pred = disfluency_bound_pred[0] * 1024 * 256 / 22050
 
     print({"start": bounds_pred[0].item(), "end": bounds_pred[1].item(), "type": labels[y_pred_labels[0][0].item()]})
-
